@@ -1,0 +1,65 @@
+console.log("heloo")
+
+window.addEventListener("load", () => {
+  const canvas = document.getElementById('videoCanvas');
+  const ctx = canvas.getContext('2d');
+
+  // Set these to your C++ capture resolution
+  const width = 640;
+  const height = 480;
+
+  // Connect to WebSocket bridge
+  const ws = new WebSocket('ws://5.185.3.151:9000/ws');
+  ws.binaryType = 'arraybuffer';
+
+  ws.onopen = () => console.log("Connected to WebSocket bridge");
+  ws.onclose = () => console.log("WebSocket closed");
+  ws.onerror = (err) => console.error("WebSocket error:", err);
+
+  // Convert NV12 frame to RGBA
+  function NV12ToRGBA(nv12, width, height) {
+    const rgba = new Uint8ClampedArray(width * height * 4);
+    const yPlane = nv12.subarray(0, width * height);
+    const uvPlane = nv12.subarray(width * height);
+
+    for (let j = 0; j < height; j++) {
+      for (let i = 0; i < width; i++) {
+        const y = yPlane[j * width + i];
+        const uvIndex = Math.floor(j / 2) * width + (Math.floor(i / 2) * 2);
+        const u = uvPlane[uvIndex];
+        const v = uvPlane[uvIndex + 1];
+
+        const c = y - 16;
+        const d = u - 128;
+        const e = v - 128;
+
+        let r = (298 * c + 409 * e + 128) >> 8;
+        let g = (298 * c - 100 * d - 208 * e + 128) >> 8;
+        let b = (298 * c + 516 * d + 128) >> 8;
+
+        r = Math.min(255, Math.max(0, r));
+        g = Math.min(255, Math.max(0, g));
+        b = Math.min(255, Math.max(0, b));
+
+        const idx = (j * width + i) * 4;
+        rgba[idx] = r;
+        rgba[idx + 1] = g;
+        rgba[idx + 2] = b;
+        rgba[idx + 3] = 255; // alpha
+      }
+    }
+    return rgba;
+  }
+
+  ws.onmessage = (event) => {
+    const nv12 = new Uint8Array(event.data);
+    if (nv12.length < width * height * 3 / 2) {
+      console.warn("Frame size too small:", nv12.length);
+      return;
+    }
+    const rgba = NV12ToRGBA(nv12, width, height);
+    const imgData = new ImageData(rgba, width, height);
+    ctx.putImageData(imgData, 0, 0);
+  };
+})
+
